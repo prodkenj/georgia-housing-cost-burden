@@ -1,0 +1,355 @@
+---
+title: "cviog Spatial Model"
+author: "Jason Withrow"
+date: "2025-02-19"
+output: pdf_document
+---
+
+```{r}
+library(spatialreg)
+library(sf)       # For spatial data
+library(spdep)    # For spatial weights & SAR model
+library(tigris)   
+library(tidycensus)
+library(tidyverse)
+library(tigris)
+cviogData = read.csv("cviogData_Feb19.csv")
+cviogData <- cviogData %>%
+  mutate(GEOID = as.character(GEOID))
+
+typeof(cviogData$GEOID)
+View(cviogData)
+
+```
+
+```{r}
+
+counties <- "tl_2023_us_county.shp"
+us_counties <- st_read(counties)
+
+```
+
+```{r}
+ga_counties <- counties(state = "GA", cb = TRUE)
+
+# Plot all counties in Georgia
+ggplot(data = ga_counties) +
+  geom_sf() +
+  ggtitle("All Counties in Georgia") +
+  theme_minimal()
+```
+
+```{r}
+ga_counties <- ga_counties[ , -6]
+View(ga_counties)
+```
+
+Merge Data and Spatial File
+```{r}
+cviogData <- cviogData %>%
+  mutate(GEOID = as.character(GEOID))
+
+# Merge with Georgia county shapefile
+cviogSpatialData <- left_join(ga_counties, cviogData, by = "GEOID")
+View(cviogSpatialData)
+```
+
+Create Spatial Weights
+
+```{r}
+# Convert to sp object for spatial modeling
+cviogSpatialData_sp <- as_Spatial(cviogSpatialData)
+head(cviogSpatialData_sp@data)
+str(cviogSpatialData_sp@data)
+
+
+# Create neighbors list using Queen contiguity
+neighbors <- poly2nb(cviogSpatialData_sp)
+
+# Generate spatial weights matrix
+weights <- nb2listw(neighbors, style = "W", zero.policy = TRUE)
+
+```
+
+
+
+Check for Spatial Autocorrelation
+```{r}
+moran_test <- moran.test(cviogSpatialData_sp@data$Pct_CostBurdened_Renters, 
+                         listw = weights, 
+                         zero.policy = TRUE)
+moran_test
+
+cviogData
+
+# Pct_CostBurdened_Renters shows a significant p-value, suggesting spatial clustering.
+```
+
+
+Basic OLS Models
+```{r}
+ols_model_owner <- lm(Pct_CostBurdened_Owners ~ MedHouseIncome 
+                      + Pct_Bachelors_Higher + Unemployment_Rate
+                      + isUrban, data = cviogSpatialData_sp@data)
+
+summary(ols_model_owner)
+
+# Moran's I on OLS residuals
+ols_owner_resids <- residuals(ols_model_owner)
+moran.test(ols_owner_resids, listw = weights, zero.policy = TRUE)
+```
+
+```{r}
+ols_model_renter <- lm(Pct_CostBurdened_Renters ~ MedHouseIncome 
+                      + Pct_Bachelors_Higher + Unemployment_Rate
+                      + isUrban, data = cviogSpatialData_sp@data)
+
+summary(ols_model_renter)
+
+# Moran's I on OLS residuals
+ols_renter_resids <- residuals(ols_model_renter)
+moran.test(ols_renter_resids, listw = weights, zero.policy = TRUE)
+
+cviogSpatialData_sp@data
+```
+
+
+```{r}
+library(spdep)
+
+lmtests_owner <- lm.LMtests(
+  ols_model_owner,
+  listw   = weights,
+  test    = c("LMlag", "LMerr", "RLMlag", "RLMerr"),
+  zero.policy = TRUE
+)
+
+lmtests_owner
+
+lmtests_renter <- lm.LMtests(
+  ols_model_renter,
+  listw   = weights,
+  test    = c("LMlag", "LMerr", "RLMlag", "RLMerr"),
+  zero.policy = TRUE
+)
+
+lmtests_renter
+
+```
+
+
+Check for Multicollinearity
+```{r}
+library(car)
+vif(ols_model)
+```
+
+
+Spatial Lag Model (Owners)
+```{r}
+lag_model_owner <- lagsarlm(
+  Pct_CostBurdened_Owners ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban, 
+  data  = cviogSpatialData_sp, 
+  listw = weights,
+  zero.policy = TRUE
+)
+
+summary(lag_model_owner)
+```
+
+
+Spatial Error Model (Owners)
+```{r}
+error_model_owner <- errorsarlm(
+  Pct_CostBurdened_Owners ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban, 
+  data  = cviogSpatialData_sp,
+  listw = weights,
+  zero.policy = TRUE
+)
+
+summary(error_model_owner)
+```
+
+```{r}
+# Compare AIC:
+AIC(ols_model_owner, lag_model_owner, error_model_owner)
+```
+
+
+Spatial Lag Model (Renters)
+```{r}
+lag_model_renter <- lagsarlm(
+  Pct_CostBurdened_Renters ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban, 
+  data  = cviogSpatialData_sp, 
+  listw = weights,
+  zero.policy = TRUE
+)
+
+summary(lag_model_renter)
+```
+
+
+Spatial Error Model (Owners)
+```{r}
+error_model_renter <- errorsarlm(
+  Pct_CostBurdened_Renters ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban, 
+  data  = cviogSpatialData_sp,
+  listw = weights,
+  zero.policy = TRUE
+)
+
+summary(error_model_renter)
+```
+Compare AIC (Renters)
+```{r}
+AIC(ols_model_renter, lag_model_renter, error_model_renter)
+```
+
+Local Clusters
+```{r}
+local_moran_vals <- localmoran(cviogSpatialData_sp@data$Pct_CostBurdened_Renters, 
+                               listw = weights, 
+                               zero.policy = TRUE)
+
+head(local_moran_vals)
+
+```
+```{r}
+# Create centroids for each polygon
+cviog_centroids <- st_centroid(cviogSpatialData) 
+
+coords <- st_coordinates(cviog_centroids)
+head(coords)
+
+# Let's say 50 km (50,000 meters)
+# d1 = 0 => no minimum distance
+dist_threshold <- 50000
+
+neighbors_dist <- dnearneigh(
+  x = coords,  # matrix of centroid coords
+  d1 = 0,
+  d2 = dist_threshold
+)
+
+# Convert to listw
+weights_dist <- nb2listw(neighbors_dist, style = "W", zero.policy = TRUE)
+
+
+summary(neighbors_dist)
+# You can see how many neighbors each county has.
+
+# For instance, K=4 nearest neighbors
+knn_4 <- knearneigh(coords, k = 4)
+
+# Convert knearneigh object to neighbor list
+neighbors_knn_4 <- knn2nb(knn_4)
+
+# Convert to listw
+weights_knn_4 <- nb2listw(neighbors_knn_4, style = "W", zero.policy = TRUE)
+
+# Quick check
+summary(weights_knn_4)
+
+```
+
+```{r}
+### 4A. OLS
+ols_owners <- lm(
+  Pct_CostBurdened_Owners ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban,
+  data = cviogSpatialData_sp@data
+)
+
+### 4B. Moran’s I on OLS residuals (distance-based)
+
+resids_owners <- residuals(ols_owners)
+moran_dist_owners <- moran.test(
+  x = resids_owners,
+  listw = weights_dist,  # distance-based weights
+  zero.policy = TRUE
+)
+moran_dist_owners
+
+### 4C. Spatial Lag with distance-based weights
+library(spatialreg)
+lag_owners_dist <- lagsarlm(
+  formula(ols_owners),
+  data = cviogSpatialData_sp,
+  listw = weights_dist,
+  zero.policy = TRUE
+)
+
+### 4D. Spatial Error with distance-based weights
+error_owners_dist <- errorsarlm(
+  formula(ols_owners),
+  data = cviogSpatialData_sp,
+  listw = weights_dist,
+  zero.policy = TRUE
+)
+
+### 4E. Compare AIC
+AIC(ols_owners, lag_owners_dist, error_owners_dist)
+
+```
+
+```{r}
+ols_renters <- lm(
+  Pct_CostBurdened_Renters ~ MedHouseIncome + Unemployment_Rate + 
+    Pct_Bachelors_Higher + isUrban,
+  data = cviogSpatialData_sp@data
+)
+
+### 4B. Moran’s I on OLS residuals (distance-based)
+
+resids_renters <- residuals(ols_renters)
+moran_dist_renters <- moran.test(
+  x = resids_renters,
+  listw = weights_dist,  # distance-based weights
+  zero.policy = TRUE
+)
+moran_dist_renters
+
+### 4C. Spatial Lag with distance-based weights
+library(spatialreg)
+lag_renters_dist <- lagsarlm(
+  formula(ols_renters),
+  data = cviogSpatialData_sp,
+  listw = weights_dist,
+  zero.policy = TRUE
+)
+
+### 4D. Spatial Error with distance-based weights
+error_renters_dist <- errorsarlm(
+  formula(ols_renters),
+  data = cviogSpatialData_sp,
+  listw = weights_dist,
+  zero.policy = TRUE
+)
+
+### 4E. Compare AIC
+AIC(ols_renters, lag_renters_dist, error_renters_dist)
+```
+
+
+```{r}
+# Create a new column for residuals
+cviogSpatialData_sp@data$lag_resid <- lag_resids
+# Convert sp -> sf
+cviogSpatialData_sf <- st_as_sf(cviogSpatialData_sp)
+
+library(tmap)
+tmap_mode("view")
+
+tm_shape(cviogSpatialData_sf) +
+  tm_polygons("lag_resid", 
+              style = "quantile", 
+              palette = "RdBu", 
+              title = "Spatial Lag Residuals") +
+  tm_layout(title = "Spatial Lag Model Residuals")
+
+```
+

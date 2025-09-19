@@ -1,0 +1,693 @@
+---
+title: "Combining Data"
+author: "Jason Withrow"
+date: "2025-01-18"
+output: pdf_document
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidycensus)
+library(tidyverse)
+library(ggplot2)
+library(tigris)
+library(dplyr)
+library(sf)
+library(gridExtra)
+```
+
+```{r}
+#using acs5 2022
+```
+
+
+```{r}
+median_income_data <- get_acs(
+  geography = "county",
+  variables = "B19013_001", # Median household income
+  state = "GA",            # State of Georgia
+  survey = "acs5",         # Use ACS 5-year estimates
+  year = 2022              # Specify the year
+)
+
+
+
+Data=median_income_data
+
+Data=Data[,-c(3,5)]
+
+colnames(Data)[3] <- "MedHouseIncome"
+
+
+```
+
+
+```{r}
+#library(tidycensus)
+
+# Get data for cost-burdened homeowners (spending 30% or more of their income on housing)
+cost_burden_homeowners <- get_acs(
+  geography = "county", 
+  table = "B25106",  # B25106_009 is cost-burdened homeowners, B25106_008 is total homeowners
+  state = "GA", 
+  year = 2022, 
+  survey = "acs5"
+)
+View(cost_burden_homeowners)
+# Calculate the percentage of cost-burdened homeowners
+#cost_burden_homeowners <- cost_burden_homeowners %>%
+  #spread(key = variable, value = estimate) %>%
+  #mutate(percentage_cost_burdened_homeowners = (B25106_009 / B25106_008) * 100)
+
+# View the results
+#head(cost_burden_homeowners)
+
+HomeData=cost_burden_homeowners
+
+
+```
+
+
+
+
+```{r}
+result <- HomeData %>%
+  # Filter for relevant variables
+  filter(variable %in% c("B25106_002", "B25106_006", "B25106_010", "B25106_014", "B25106_018", "B25106_022")) %>%
+  # Group by GEOID and County Name
+  group_by(GEOID, NAME) %>%
+  # Summarize data to calculate total cost-burdened and percentage
+  summarise(
+    total_units = sum(estimate[variable == "B25106_002"], na.rm = TRUE),
+    cost_burdened = sum(estimate[variable %in% c("B25106_006", "B25106_010", "B25106_014", "B25106_018", "B25106_022")], na.rm = TRUE),
+    percent_cost_burdened = (cost_burdened / total_units) * 100
+  ) %>%
+  # Select the relevant columns and ungroup
+  select(GEOID, County_Name = NAME, percent_cost_burdened) %>%
+  ungroup()
+
+
+```
+
+
+```{r}
+result <- Data %>%
+  left_join(result %>% select(GEOID, percent_cost_burdened), by = "GEOID")
+
+
+
+
+```
+```{r}
+result <- result %>%
+  rename(percent_owner_occupied_cost_burdened = percent_cost_burdened)
+
+# View the updated data frame
+
+```
+
+```{r}
+result2 <- HomeData %>%
+  # Filter for relevant variables
+  filter(variable %in% c("B25106_024", "B25106_028", "B25106_032", "B25106_036", "B25106_040", "B25106_044")) %>%
+  # Group by GEOID and County Name
+  group_by(GEOID, NAME) %>%
+  # Summarize data to calculate total cost-burdened and percentage
+  summarise(
+    total_units = sum(estimate[variable == "B25106_024"], na.rm = TRUE),
+    cost_burdened = sum(estimate[variable %in% c("B25106_028", "B25106_032", "B25106_036", "B25106_040", "B25106_044")], na.rm = TRUE),
+    percent_renter_occupied_cost_burdened = (cost_burdened / total_units) * 100
+  ) %>%
+  # Select the relevant columns and ungroup
+  select(GEOID, County_Name = NAME, percent_renter_occupied_cost_burdened) %>%
+  ungroup()
+
+# View the result
+
+```
+
+```{r}
+
+```
+
+```{r}
+result <- result %>%
+  left_join(result2 %>% select(GEOID, percent_renter_occupied_cost_burdened), by = "GEOID")
+
+# View the updated result data frame
+
+
+View(result)
+```
+
+
+```{r}
+state <- "GA"
+variables <- c(housing_units = "B25001_001", population = "B01003_001")
+
+# Get data for all counties in Georgia
+data <- get_acs(
+  geography = "county",
+  variables = variables,
+  state = state,
+  year = 2022, # Use the ACS year of your choice
+  survey = "acs5"
+) %>%
+  select(GEOID, NAME, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate) %>%
+  mutate(
+    isUrban = ifelse(population >= 5000, 1, 0)  # Urban if population >= 5000
+  )
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+isUrban=c(0,0,0,0,0,0,1,1,0,0,1,0,1,1,1,0,1,1,0,0,0,1,1,0,1,1,0,1,1,0,1,0,1,0,0,1,0,1,1,0,1,1,0,1,0,0,1,1,0,1,1,0,1,1,1,0,1,1,0,1,0,0,1,0,0,0,1,0,1,0,1,1,0,1,1,1,0,0,1,0,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,1,1,1,0,0,1,0,1,1,1,1,1,1,1,1,1,0,1,0,0,0,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1)
+
+isUrban=as.factor(isUrban)
+isUrban
+
+result$isUrban <- isUrban
+
+
+```
+
+```{r}
+#(result)
+```
+
+```{r}
+age_homeowners <- get_acs(
+  geography = "county", 
+  table = "B25093",  # B25106_009 is cost-burdened homeowners, B25106_008 is total homeowners
+  state = "GA", 
+  year = 2022, 
+  survey = "acs5"
+)
+
+#View(age_homeowners)
+
+
+#B25093_002 - 15-24
+#B25093_009 - 25-34
+#B25093_016 - 35-64
+#B25093_023 - 65+
+```
+
+```{r}
+age_vars <- c(
+  "B25093_002", # Total homeowners aged 15-24
+  "B25093_009", # Total homeowners aged 25-34
+  "B25093_016", # Total homeowners aged 35-64
+  "B25093_023"  # Total homeowners aged 65+
+)
+
+# Fetch data for these variables for all counties in Georgia
+age_data <- get_acs(
+  geography = "county",
+  state = "GA",
+  variables = age_vars,
+  year = 2022, # Use the latest year available
+  survey = "acs5"
+)
+
+# Add a column for the age group label
+age_data <- age_data %>%
+  mutate(
+    age_group = case_when(
+      variable == "B25093_002" ~ "15-24",
+      variable == "B25093_009" ~ "25-34",
+      variable == "B25093_016" ~ "35-64",
+      variable == "B25093_023" ~ "65+",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Pivot data to have one column per age group
+age_summary <- age_data %>%
+  select(GEOID, age_group, estimate) %>%
+  pivot_wider(
+    names_from = age_group,
+    values_from = estimate,
+    values_fill = 0
+  )
+
+# Rename columns for clarity
+age_summary <- age_summary %>%
+  rename(
+    Homeowners_15_24 = `15-24`,
+    Homeowners_25_34 = `25-34`,
+    Homeowners_35_64 = `35-64`,
+    Homeowners_65_plus = `65+`
+  )
+
+# View the summarized data
+head(age_summary)
+
+# If you already have a custom dataset, merge the age summary into it
+result <- left_join(result, age_summary, by = "GEOID")
+
+# View the updated custom dataset
+#View(result)
+```
+```{r}
+cost_burdened_vars <- c(
+  "B25093_006", "B25093_007",  # Cost-burdened 15-24
+  "B25093_013", "B25093_014",  # Cost-burdened 25-34
+  "B25093_020", "B25093_021",  # Cost-burdened 35-64
+  "B25093_027", "B25093_028",  # Cost-burdened 65+
+  "B25093_002",                # Total homeowners 15-24
+  "B25093_009",                # Total homeowners 25-34
+  "B25093_016",                # Total homeowners 35-64
+  "B25093_023"                 # Total homeowners 65+
+)
+
+# Fetch data for all relevant variables
+cost_burdened_data <- get_acs(
+  geography = "county",
+  state = "GA",
+  variables = cost_burdened_vars,
+  year = 2022,
+  survey = "acs5"
+)
+
+# Transform data into wide format
+wide_data <- cost_burdened_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate percentages for each age group
+wide_data <- wide_data %>%
+  mutate(
+    Pct_CostBurdened_15_24 = (B25093_006 + B25093_007) / B25093_002 * 100,
+    Pct_CostBurdened_25_34 = (B25093_013 + B25093_014) / B25093_009 * 100,
+    Pct_CostBurdened_35_64 = (B25093_020 + B25093_021) / B25093_016 * 100,
+    Pct_CostBurdened_65_plus = (B25093_027 + B25093_028) / B25093_023 * 100
+  )
+
+# Handle any potential division by zero
+wide_data <- wide_data %>%
+  mutate(
+    Pct_CostBurdened_15_24 = ifelse(is.nan(Pct_CostBurdened_15_24), 0, Pct_CostBurdened_15_24),
+    Pct_CostBurdened_25_34 = ifelse(is.nan(Pct_CostBurdened_25_34), 0, Pct_CostBurdened_25_34),
+    Pct_CostBurdened_35_64 = ifelse(is.nan(Pct_CostBurdened_35_64), 0, Pct_CostBurdened_35_64),
+    Pct_CostBurdened_65_plus = ifelse(is.nan(Pct_CostBurdened_65_plus), 0, Pct_CostBurdened_65_plus)
+  )
+
+# Select relevant columns
+percentages <- wide_data %>%
+  select(
+    GEOID,
+    Pct_CostBurdened_15_24,
+    Pct_CostBurdened_25_34,
+    Pct_CostBurdened_35_64,
+    Pct_CostBurdened_65_plus
+  )
+
+# Merge percentages into your custom dataset
+result <- left_join(result, percentages, by = "GEOID")
+
+# View the updated custom dataset
+
+```
+
+```{r}
+age_renters <- get_acs(
+  geography = "county", 
+  table = "B25072",  # B25106_009 is cost-burdened homeowners, B25106_008 is total homeowners
+  state = "GA", 
+  year = 2022, 
+  survey = "acs5"
+)
+
+
+```
+
+```{r}
+# Variables for renters by age group (from B25072)
+renters_vars <- c(
+  "B25072_002", # Total renters aged 15-24
+  "B25072_009", # Total renters aged 25-34
+  "B25072_016", # Total renters aged 35-64
+  "B25072_023"  # Total renters aged 65+
+)
+
+# Fetch data for these variables for all counties in Georgia
+renters_data <- get_acs(
+  geography = "county",
+  state = "GA",
+  variables = renters_vars,
+  year = 2022, # Use the latest year available
+  survey = "acs5"
+)
+
+# Add a column for the age group label
+renters_data <- renters_data %>%
+  mutate(
+    age_group = case_when(
+      variable == "B25072_002" ~ "15-24",
+      variable == "B25072_009" ~ "25-34",
+      variable == "B25072_016" ~ "35-64",
+      variable == "B25072_023" ~ "65+",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Pivot data to have one column per age group
+renters_summary <- renters_data %>%
+  select(GEOID, age_group, estimate) %>%
+  pivot_wider(
+    names_from = age_group,
+    values_from = estimate,
+    values_fill = 0
+  )
+
+# Rename columns for clarity
+renters_summary <- renters_summary %>%
+  rename(
+    Renters_15_24 = `15-24`,
+    Renters_25_34 = `25-34`,
+    Renters_35_64 = `35-64`,
+    Renters_65_plus = `65+`
+  )
+
+# View the summarized data
+head(renters_summary)
+
+# Merge the renters summary into your custom dataset
+result <- left_join(result, renters_summary, by = "GEOID")
+
+
+```
+
+```{r}
+#
+
+# Define the variables for cost-burdened renters calculations
+renter_cost_burdened_vars <- c(
+  "B25072_006", "B25072_007",  # Cost-burdened renters 15-24
+  "B25072_013", "B25072_014",  # Cost-burdened renters 25-34
+  "B25072_020", "B25072_021",  # Cost-burdened renters 35-64
+  "B25072_027", "B25072_028",  # Cost-burdened renters 65+
+  "B25072_002",                # Total renters 15-24
+  "B25072_009",                # Total renters 25-34
+  "B25072_016",                # Total renters 35-64
+  "B25072_023"                 # Total renters 65+
+)
+
+# Fetch data for all relevant variables
+renter_cost_burdened_data <- get_acs(
+  geography = "county",
+  state = "GA",
+  variables = renter_cost_burdened_vars,
+  year = 2022,
+  survey = "acs5"
+)
+
+# Transform data into wide format
+renter_wide_data <- renter_cost_burdened_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate percentages for each renter age group
+renter_wide_data <- renter_wide_data %>%
+  mutate(
+    Pct_RenterCostBurdened_15_24 = (B25072_006 + B25072_007) / B25072_002 * 100,
+    Pct_RenterCostBurdened_25_34 = (B25072_013 + B25072_014) / B25072_009 * 100,
+    Pct_RenterCostBurdened_35_64 = (B25072_020 + B25072_021) / B25072_016 * 100,
+    Pct_RenterCostBurdened_65_plus = (B25072_027 + B25072_028) / B25072_023 * 100
+  )
+
+# Handle any potential division by zero
+renter_wide_data <- renter_wide_data %>%
+  mutate(
+    Pct_RenterCostBurdened_15_24 = ifelse(is.nan(Pct_RenterCostBurdened_15_24), 0, Pct_RenterCostBurdened_15_24),
+    Pct_RenterCostBurdened_25_34 = ifelse(is.nan(Pct_RenterCostBurdened_25_34), 0, Pct_RenterCostBurdened_25_34),
+    Pct_RenterCostBurdened_35_64 = ifelse(is.nan(Pct_RenterCostBurdened_35_64), 0, Pct_RenterCostBurdened_35_64),
+    Pct_RenterCostBurdened_65_plus = ifelse(is.nan(Pct_RenterCostBurdened_65_plus), 0, Pct_RenterCostBurdened_65_plus)
+  )
+
+# Select relevant columns
+renter_percentages <- renter_wide_data %>%
+  select(
+    GEOID,
+    Pct_RenterCostBurdened_15_24,
+    Pct_RenterCostBurdened_25_34,
+    Pct_RenterCostBurdened_35_64,
+    Pct_RenterCostBurdened_65_plus
+  )
+
+# Merge percentages into your custom dataset
+result <- left_join(result, renter_percentages, by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+
+```
+
+```{r}
+variable <- "B25140B"
+
+# Fetch data for the B25140B variable (for census geography of counties)
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # or the state of your choice
+  table=variable,
+  year = 2023,
+  survey = "acs5"  # Use the ACS 5-year data
+)
+
+# View the fetched data
+View(acs_data)  # check the first few rows
+
+
+
+
+```
+
+```{r}
+cost_burdened_vars <- c(
+  "B25140B_003",  # First cost-burdened category
+  "B25140B_004",  # Second cost-burdened category
+  "B25140B_007",  # Third cost-burdened category
+  "B25140B_008"   # Fourth cost-burdened category
+)
+
+# Fetch the data for the variables
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # Specify the state
+  variables = cost_burdened_vars,
+  year = 2023,
+  survey = "acs5"
+)
+
+# Transform the data into a wide format
+wide_data <- acs_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate the total number of cost-burdened Black homeowners
+wide_data <- wide_data %>%
+  mutate(
+    Total_CostBurdened_Black = B25140B_003 + B25140B_004 + B25140B_007 + B25140B_008
+  )
+
+# Merge the calculated column into your custom dataset (`result`)
+result <- left_join(result, wide_data %>%
+                      select(GEOID, Total_CostBurdened_Black), by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+```
+
+
+```{r}
+cost_burdened_vars <- c(
+  "B25140A_003",  # First cost-burdened category
+  "B25140A_004",  # Second cost-burdened category
+  "B25140A_007",  # Third cost-burdened category
+  "B25140A_008"   # Fourth cost-burdened category
+)
+
+# Fetch the data for the variables
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # Specify the state
+  variables = cost_burdened_vars,
+  year = 2023,
+  survey = "acs5"
+)
+
+# Transform the data into a wide format
+wide_data <- acs_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate the total number of cost-burdened Black homeowners
+wide_data <- wide_data %>%
+  mutate(
+    Total_CostBurdened_White = B25140A_003 + B25140A_004 + B25140A_007 + B25140A_008
+  )
+
+# Merge the calculated column into your custom dataset (`result`)
+result <- left_join(result, wide_data %>%
+                      select(GEOID, Total_CostBurdened_White), by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+```
+
+
+```{r}
+cost_burdened_vars <- c(
+  "B25140C_003",  # First cost-burdened category
+  "B25140C_004",  # Second cost-burdened category
+  "B25140C_007",  # Third cost-burdened category
+  "B25140C_008"   # Fourth cost-burdened category
+)
+
+# Fetch the data for the variables
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # Specify the state
+  variables = cost_burdened_vars,
+  year = 2023,
+  survey = "acs5"
+)
+
+# Transform the data into a wide format
+wide_data <- acs_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate the total number of cost-burdened Black homeowners
+wide_data <- wide_data %>%
+  mutate(
+    Total_CostBurdened_American_Ind = B25140C_003 + B25140C_004 + B25140C_007 + B25140C_008
+  )
+
+# Merge the calculated column into your custom dataset (`result`)
+result <- left_join(result, wide_data %>%
+                      select(GEOID, Total_CostBurdened_American_Ind), by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+```
+
+
+
+```{r}
+cost_burdened_vars <- c(
+  "B25140D_003",  # First cost-burdened category
+  "B25140D_004",  # Second cost-burdened category
+  "B25140D_007",  # Third cost-burdened category
+  "B25140D_008"   # Fourth cost-burdened category
+)
+
+# Fetch the data for the variables
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # Specify the state
+  variables = cost_burdened_vars,
+  year = 2023,
+  survey = "acs5"
+)
+
+# Transform the data into a wide format
+wide_data <- acs_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate the total number of cost-burdened Black homeowners
+wide_data <- wide_data %>%
+  mutate(
+    Total_CostBurdened_Asian = B25140D_003 + B25140D_004 + B25140D_007 + B25140D_008
+  )
+
+# Merge the calculated column into your custom dataset (`result`)
+result <- left_join(result, wide_data %>%
+                      select(GEOID, Total_CostBurdened_Asian), by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+```
+
+
+```{r}
+cost_burdened_vars <- c(
+  "B25140E_003",  # First cost-burdened category
+  "B25140E_004",  # Second cost-burdened category
+  "B25140E_007",  # Third cost-burdened category
+  "B25140E_008"   # Fourth cost-burdened category
+)
+
+# Fetch the data for the variables
+acs_data <- get_acs(
+  geography = "county",
+  state = "GA",  # Specify the state
+  variables = cost_burdened_vars,
+  year = 2023,
+  survey = "acs5"
+)
+
+# Transform the data into a wide format
+wide_data <- acs_data %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from = variable, values_from = estimate, values_fill = 0)
+
+# Calculate the total number of cost-burdened Black homeowners
+wide_data <- wide_data %>%
+  mutate(
+    Total_CostBurdened_Pacific = B25140E_003 + B25140E_004 + B25140E_007 + B25140E_008
+  )
+
+# Merge the calculated column into your custom dataset (`result`)
+result <- left_join(result, wide_data %>%
+                      select(GEOID, Total_CostBurdened_Pacific), by = "GEOID")
+
+# View the updated custom dataset
+View(result)
+```
+```{r}
+colnames(result)[23:27] <- c(
+  "Total_CostBurdenedOwners_Black",
+  "Total_CostBurdenedOwners_White",
+  "Total_CostBurdenedOwners_American_Ind",
+  "Total_CostBurdenedOwners_Asian",
+  "Total_CostBurdenedOwners_Pacific"
+)
+View(result)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

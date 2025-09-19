@@ -1,0 +1,508 @@
+---
+title: "Capstone Project MLR (Feb 12)"
+author: "Wil Hudson"
+date: "2025-02-13"
+output: pdf_document
+---
+
+# load necessary packages
+```{r}
+library(ggplot2)
+library(dplyr)
+library(car)
+library(lmtest)
+library(heplots)
+library(nlme)
+```
+
+
+# load in data
+```{r}
+data = read.csv("CVIOGData_Feb12.csv")
+head(data)
+colnames(data)
+str(data)
+```
+
+```{r}
+plot(data$percent_renter_occupied_cost_burdened, data$MedHouseIncome)
+plot(data$unemployment_rate, data$percent_renter_occupied_cost_burdened)
+plot(data$percent_bachelors_higher, data$percent_renter_occupied_cost_burdened)
+plot(data$isUrban, data$percent_renter_occupied_cost_burdened)
+```
+
+# convert isUrban to factor
+```{r}
+data$isUrban = as.factor(data$isUrban)
+```
+
+# fit model
+```{r}
+attach(data)
+model = lm(percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher)
+```
+
+# check conditions
+
+```{r}
+hist(model$residuals)
+```
+# it appears that the distribution of residuals is approximately bell-shaped, indicating normality is met
+
+```{r}
+qqnorm(model$residuals)
+qqline(model$residuals, col = "blue")
+```
+# it appears that most of the residuals appear on the linear line, indicating normality is met
+
+```{r}
+shapiro.test(model$residuals)
+```
+# sw test indicates we fail to have enough evidence to reject the null hypothesis and we can conclude normality is met
+
+```{r}
+plot(model, which = 1)
+```
+# residuals appear to be randomly scattered around the line y = 0, indicating that linearity is met
+
+# additionaly, the variance of the residuals appears to stay constant, indicating that homoscedasticity is met
+
+```{r}
+bptest(model)
+```
+# Breusch-Pagan test indicates we have enough evidence to reject the null hypothesis and can conclude that heterodescasticity may be present in our model
+
+```{r}
+durbinWatsonTest(model)
+```
+# DW test indicates we fail to have significant evidence to reject null and can conclude that residuals' autocorrelations is 0 (i.e. independence is met)
+
+```{r}
+cor(MedHouseIncome, percent_bachelors_higher)
+vif(model)
+```
+
+```{r}
+summary(model)
+```
+
+```{r}
+data$log_percent_owner_occupied_cost_burdened <- log(data$percent_owner_occupied_cost_burdened)
+# Now re-run the regression with the transformed variable
+model_log <- lm(log_percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, data = data)
+
+summary(model_log)
+```
+
+```{r}
+bptest(model_log)
+durbinWatsonTest(model_log)
+plot(model_log, which = 1)
+```
+```{r}
+shapiro.test(model_log$residuals)
+```
+```{r}
+qqnorm(model_log$residuals)
+qqline(model_log$residuals, col="red")
+```
+
+```{r}
+hist(model_log$residuals)
+```
+
+
+```{r}
+library(caret)
+
+# Define training control
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train Model 1 (original)
+model_cv <- train(percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, 
+                   data = data, method = "lm", trControl = train_control)
+
+# Train Model 2 (log-transformed)
+model_log__cv <- train(log(percent_owner_occupied_cost_burdened) ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, 
+                   data = data, method = "lm", trControl = train_control)
+
+# Compare cross-validation results
+print(model_cv)
+print(model_log__cv)
+```
+# The log-transformed model has much higher predictive power (RMSE of 0.2070227 compared to RMSE of 3.90616 due to prediction errors). It maintaisn the same level of R^2 between both models. The log transformation addresses issues with heteroscedasticity leading to better model performance.
+
+# Backward selection for log transformation model
+
+```{r}
+full_log_model = lm(log_percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, data = data)
+summary(full_log_model)
+AIC(full_log_model)
+```
+
+```{r}
+log_model_minus_unemployment_rate = lm(log_percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + percent_bachelors_higher, data = data)
+summary(log_model_minus_unemployment_rate)
+AIC(log_model_minus_unemployment_rate)
+```
+
+```{r}
+final_log_model = lm(log_percent_owner_occupied_cost_burdened ~ MedHouseIncome + percent_bachelors_higher, data = data)
+summary(final_log_model)
+AIC(final_log_model)
+```
+
+```{r}
+vif(final_log_model)
+```
+# No multicollinearity present within the model
+
+
+```{r}
+exp(coef(final_log_model)["MedHouseIncome"])
+exp(coef(final_log_model)["percent_bachelors_higher"])
+1 - 0.999993 
+1.009907 - 1
+7e-06 * 100
+0.009907 * 100
+```
+# Final model equation for predicting percentage of cost burden based on owner-occupied households,
+## percentage of owner-occupied households cost burdened = e^(log(percent_owner_occupied_cost_burdened)) = e^(3.167e+00+ -6.972e-06*(MedHouseIncome) + 9.859e-03*(percent_bachelors_higher))
+# Model statistically significant with p-value of 0.0001259
+# For every $1,000 increase in median household income, there's a 0.009907% decrease in cost-burdenedness for owner-occupied households
+# For every 1% increase in people with a bachelor's degree or higher, there's a 0.9907% increase in cost-burdenedness for owner-occupied households
+
+# just to make sure, validate all model conditions
+```{r}
+bptest(final_log_model)
+durbinWatsonTest(final_log_model)
+plot(final_log_model, which = 1)
+shapiro.test(final_log_model$residuals)
+```
+# Breusch-Pagan test indicates we fail to have enough evidence to reject the null hypothesis and can conclude that residuals are homescedastic
+# Residuals appear randomly scattered around y = 0 meaning linearity is met and no patterns in residuals vs fitted plot
+# DW test indicates we fail to have significant evidence to reject null and can conclude that residuals' autocorrelations is 0 (i.e. independence is met)
+# Shapiro-wilks test indicates normaity
+
+```{r}
+qqnorm(final_log_model$residuals)
+qqline(final_log_model$residuals, col="red")
+hist(final_log_model$residuals)
+```
+# QQ Plot and histogram of residuals indicates normality as well
+
+
+```{r}
+model3 = lm(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, data=data)
+
+bptest(model3)
+durbinWatsonTest(model3)
+plot(model3, which = 1)
+
+# Add labels (use row numbers or specific identifiers)
+text(fitted(model3), residuals(model3), labels = 1:length(residuals(model3)), pos = 3, cex = 0.7)
+
+```
+
+```{r}
+shapiro.test(model3$residuals)
+```
+
+```{r}
+qqnorm(model3$residuals)
+qqline(model3$residuals, col="red")
+```
+
+```{r}
+hist(model3$residuals)
+```
+
+```{r}
+# Find the row corresponding to label 118
+row_to_remove = which(1:length(residuals(model3)) == 118)
+
+#Remove that row from the dataset
+data_cleaned <- data[-row_to_remove, ]
+
+# Refit the model without the removed row
+model3_refitted <- lm(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, data = data_cleaned)
+
+# Summary of the refitted model
+summary(model3_refitted)
+
+plot(model3_refitted, which = 1)
+```
+
+```{r}
+bptest(model3_refitted)
+durbinWatsonTest(model3_refitted)
+shapiro.test(model3_refitted$residuals)
+```
+
+```{r}
+hist(model3_refitted$residuals)
+qqnorm(model3_refitted$residuals)
+qqline(model3_refitted$residuals)
+```
+
+```{r}
+summary(model3)
+summary(model3_refitted)
+```
+
+```{r}
+data$log_percent_renter_occupied_cost_burdened <- log(data$percent_renter_occupied_cost_burdened)
+# Now re-run the regression with the transformed variable
+model_log2 <- lm(log_percent_renter_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, data = data)
+
+summary(model_log2)
+```
+
+```{r}
+bptest(model_log2)
+durbinWatsonTest(model_log2)
+plot(model_log2, which = 1)
+
+# Add labels (use row numbers or specific identifiers)
+text(fitted(model_log2), residuals(model_log2), labels = 1:length(residuals(model3)), pos = 3, cex = 0.7)
+```
+```{r}
+hist(model_log2$residuals)
+```
+
+```{r}
+qqnorm(model_log2$residuals)
+qqline(model_log2$residuals)
+```
+
+```{r}
+shapiro.test(model_log2$residuals)
+```
+
+```{r}
+# Find the row corresponding to label 118
+row_to_remove2 = which(1:length(residuals(model_log2)) == 118)
+
+#Remove that row from the dataset
+data_cleaned2 <- data[-row_to_remove2, ]
+
+# Refit the model without the removed row
+model_log2_refitted <- lm(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, data = data_cleaned2)
+
+# Summary of the refitted model
+summary(model_log2_refitted)
+
+plot(model_log2_refitted, which = 1)
+```
+
+```{r}
+bptest(model_log2_refitted)
+durbinWatsonTest(model_log2_refitted)
+shapiro.test(model_log2_refitted$residuals)
+```
+
+```{r}
+hist(model_log2_refitted$residuals)
+```
+
+```{r}
+qqnorm(model_log2_refitted$residuals)
+qqline(model_log2_refitted$residuals)
+```
+
+```{r}
+summary(model_log2)
+summary(model_log2_refitted)
+```
+
+```{r}
+ #Fit WLS model using weights = 1 / residual variance
+wls_model3 <- gls(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, data = data, weights = varFixed(~ MedHouseIncome))
+
+# Check residuals
+plot(wls_model3, which = 1)
+```
+
+
+```{r}
+#data$isUrban <- as.numeric(data$isUrban)  # Converts factor to numeric (1, 2, etc.)
+#residuals_squared <- residuals(wls_model3)^2
+#cor(data[, c("MedHouseIncome", "isUrban", "percent_bachelors_higher", "unemployment_rate")], residuals_squared, #use = "complete.obs")
+```
+
+
+```{r}
+hist(wls_model3$residuals)
+```
+
+```{r}
+shapiro.test(wls_model3$residuals)
+```
+
+```{r}
+qqnorm(wls_model3$residuals)
+qqline(wls_model3$residuals)
+```
+
+```{r}
+dwtest(residuals(wls_model3) ~ 1)
+```
+
+```{r}
+ncvTest(lm(residuals(wls_model3)^2 ~ fitted(wls_model3)))
+```
+
+```{r}
+summary(wls_model3)
+```
+
+
+
+```{r}
+wls_model3_urban_wt <- gls(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, 
+                 data = data, 
+                 weights = varIdent(form = ~ 1 | isUrban))
+```
+
+```{r}
+library(lmtest)
+
+# Extract residuals and fitted values
+residuals_squared <- residuals(wls_model3_urban_wt, type = "pearson")^2
+fitted_values <- fitted(wls_model3_urban_wt)
+
+# Fit auxiliary regression
+bp_model <- lm(residuals_squared ~ fitted_values, data = data)
+
+# Perform Breusch-Pagan test
+bptest(bp_model)
+```
+
+```{r}
+# Extract Pearson residuals and fitted values
+residuals_squared1 <- residuals(wls_model3, type = "pearson")^2
+fitted_values1 <- fitted(wls_model3)
+
+# Fit auxiliary regression
+bp_model1 <- lm(residuals_squared1 ~ fitted_values1, data = data)
+
+# Perform Breusch-Pagan test
+bptest(bp_model1)
+```
+
+```{r}
+wls_model3_medhouseinc <- gls(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher + unemployment_rate, 
+                 data = data, 
+                 weights = varPower(form = ~ MedHouseIncome))
+```
+
+```{r}
+# Extract Pearson residuals and fitted values
+residuals_squared2 <- residuals(wls_model3_medhouseinc, type = "pearson")^2
+fitted_values2 <- fitted(wls_model3_medhouseinc)
+
+# Fit auxiliary regression
+bp_model2 <- lm(residuals_squared2 ~ fitted_values2, data = data)
+
+# Perform Breusch-Pagan test
+bptest(bp_model2)
+```
+
+```{r}
+AIC(wls_model3, wls_model3_urban_wt, wls_model3_medhouseinc)
+```
+
+```{r}
+summary(wls_model3)
+summary(wls_model3_medhouseinc)
+summary(wls_model3_urban_wt)
+```
+
+```{r}
+final_wls_model = wls_model3_urban_wt
+summary(final_wls_model)
+```
+
+
+```{r}
+# Check residuals
+plot(final_wls_model, which = 1)
+```
+
+```{r}
+
+# Define training control
+train_control <- trainControl(method = "cv", number = 10)
+
+# OLS model
+model_ols <- train(percent_renter_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, 
+                   data = data, method = "lm", trControl = train_control)
+
+# Log-transformed model
+model_log <- train(log(percent_renter_occupied_cost_burdened) ~ MedHouseIncome + isUrban + unemployment_rate + percent_bachelors_higher, 
+                   data = data, method = "lm", trControl = train_control)
+
+# Compare results
+print(model_ols)
+print(model_log)
+```
+
+# Model3 i.e. mlr for renter-occupied households is best based on R-squared, however, the log model is better based on cross-validation results with a much lower RMSE. But, both models fail on heteroscedasticy so the final wls model is the best fit if we base the decision on heteroscedasticity.
+
+# NEED TO DECIDE WHAT MODEL FOR PREDICTING COST-BURDENNESS FOR RENTER-OCCUPIED HOUSEHOLDS
+
+```{r}
+summary(final_wls_model)
+wls_model3_urban_wt_no_unemployment_rate <- gls(percent_renter_occupied_cost_burdened ~ isUrban + MedHouseIncome + percent_bachelors_higher,
+                 data = data, 
+                 weights = varIdent(form = ~ 1 | isUrban))
+summary(wls_model3_urban_wt_no_unemployment_rate)
+```
+# Used backward selection to remove unemployment rate due to insignificant p-value and resulted in BIC decrease from 1151.607 to 1148.877
+# When changing isUrban from 0 to 1 the cost-burden percentage for renter-occupied households increases by 9.43% (suggesting that being in urban areas resultsi in a 9.43% increase in cost-burden compared to rural areas)
+# For every $1000 increase in median household income, the cost-burden percentage for renter-occupied households decreases by 0.00015%
+# For an additional 1% increase in the percentage of individuals with a bachelor's degree or higher results in a 0.35% increase in cost-burden percentage for renter-occupied households
+
+# Extra Stuff
+# Method 1: Potentially handling multicollinearity by investigation model coefficients' sensitivity
+
+```{r}
+summary(model)
+```
+
+```{r}
+model.no_income = lm(percent_owner_occupied_cost_burdened ~ isUrban+unemployment_rate+percent_bachelors_higher, data = data)
+
+summary(model.no_income)
+```
+# removing median household income causes all variables to be insignficiant
+```{r}
+model.no_edu = lm(percent_owner_occupied_cost_burdened ~ MedHouseIncome + isUrban + unemployment_rate, data = data)
+
+summary(model.no_edu)
+```
+# removing percentage of people with bachelor's or higher still leaves median household income signficiant
+
+# Method 2: Investigating using PCA
+
+```{r}
+selected.data = data[, c("MedHouseIncome", "percent_bachelors_higher")]
+
+scaled_data = scale(selected.data)
+
+pca_res = prcomp(scaled_data)
+
+summary(pca_res)
+```
+
+```{r}
+pc1 = pca_res$x[ ,1]
+data$PC1 = pc1
+
+model2 = lm(percent_owner_occupied_cost_burdened ~ PC1 + isUrban + unemployment_rate, data = data)
+
+summary(model2)
+```
+# model is not a good fit as R^2 value decreased compared to original model and no coefficients are significant anymore at predicting cost burden percentage for owner occupied households
+
+

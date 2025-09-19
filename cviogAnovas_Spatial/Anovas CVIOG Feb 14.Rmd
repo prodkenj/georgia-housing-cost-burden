@@ -1,0 +1,226 @@
+---
+title: "ANOVA cviog Feb 14"
+author: "Jason Withrow"
+date: "2025-02-14"
+output: pdf_document
+---
+
+## Fix Data
+
+```{r}
+libr
+library(tidycensus)
+library(tidyverse)
+library(ggplot2)
+library(PMCMRplus)
+cviogData = read.csv("cviogData_Feb19.csv")
+cviogData <- cviogData %>%
+  mutate(GEOID = as.character(GEOID))
+
+typeof(cviogData$GEOID)
+View(cviogData)
+
+
+
+
+```
+
+# Age Owners Anova
+```{r}
+
+
+
+cviogDataAgeOwners <- cviogData %>%
+  select(GEOID, Pct_CostBurdened_15_24, Pct_CostBurdened_25_34, 
+         Pct_CostBurdened_35_64, Pct_CostBurdened_65_plus) %>%
+  pivot_longer(cols = c("Pct_CostBurdened_15_24", 
+                        "Pct_CostBurdened_25_34", 
+                        "Pct_CostBurdened_35_64", 
+                        "Pct_CostBurdened_65_plus"),
+               names_to = "Age_Group", 
+               values_to = "Pct_CostBurdened") %>%
+  mutate(Age_Group = factor(Age_Group, 
+                            levels = c("Pct_CostBurdened_15_24", 
+                                       "Pct_CostBurdened_25_34",
+                                       "Pct_CostBurdened_35_64", 
+                                       "Pct_CostBurdened_65_plus"),
+                            labels = c("15-24", "25-34", "35-64", "65+")))
+
+
+
+
+
+
+ggplot(cviogDataAgeOwners, aes(x = Age_Group, y = Pct_CostBurdened, fill = Age_Group)) +
+  geom_violin() +
+  labs(title = "Violin Plot of Cost Burdened Homeowners by Age Group",
+       x = "Age Group",
+       y = "Percentage of Cost Burdened Homeowners") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate x-axis labels if needed
+```
+
+```{r}
+ggplot(cviogDataAgeOwners, aes(x = Pct_CostBurdened, fill = Age_Group)) +
+  geom_histogram(bins = 20, color = "black", alpha = 0.7) +
+  facet_wrap(~ Age_Group, scales = "free") +
+  labs(title = "Histogram of Cost Burdened Homeowners by Age Group",
+       x = "Percentage of Cost Burdened Homeowners",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+#Welchs Anova
+oneway.test(Pct_CostBurdened ~ Age_Group, data = cviogDataAgeOwners, var.equal = FALSE)
+
+gamesHowellTest(Pct_CostBurdened ~ Age_Group, data = cviogDataAgeOwners)
+
+
+```
+
+
+
+# Age Renters Anova
+
+```{r}
+cviogDataAgeRenters <- cviogData %>%
+  select(GEOID, Pct_RenterCostBurdened_15_24, Pct_RenterCostBurdened_25_34, 
+         Pct_RenterCostBurdened_35_64, Pct_RenterCostBurdened_65_plus) %>%
+  pivot_longer(cols = c("Pct_RenterCostBurdened_15_24", 
+                        "Pct_RenterCostBurdened_25_34", 
+                        "Pct_RenterCostBurdened_35_64", 
+                        "Pct_RenterCostBurdened_65_plus"),
+               names_to = "Age_Group", 
+               values_to = "Pct_RenterCostBurdened") %>%
+  mutate(Age_Group = factor(Age_Group, 
+                            levels = c("Pct_RenterCostBurdened_15_24", 
+                                       "Pct_RenterCostBurdened_25_34",
+                                       "Pct_RenterCostBurdened_35_64", 
+                                       "Pct_RenterCostBurdened_65_plus"),
+                            labels = c("15-24", "25-34", "35-64", "65+")))
+
+
+
+ggplot(cviogDataAgeRenters, aes(x = Age_Group, y = Pct_RenterCostBurdened, fill = Age_Group)) +
+  geom_violin() +
+  labs(title = "Violin Plot of Renter Cost Burdened by Age Group",
+       x = "Age Group",
+       y = "Percentage of Renter Cost Burdened") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate x-axis labels if needed
+```
+
+```{r}
+ggplot(cviogDataAgeRenters, aes(x = Pct_RenterCostBurdened, fill = Age_Group)) +
+  geom_histogram(bins = 20, color = "black", alpha = 0.7) +
+  facet_wrap(~ Age_Group, scales = "free") +
+  labs(title = "Histogram of Cost Burdened Homeowners by Age Group",
+       x = "Percentage of Cost Burdened Homeowners",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+
+oneway.test(Pct_RenterCostBurdened ~ Age_Group, data = cviogDataAgeRenters, var.equal = FALSE)
+
+gamesHowellTest(Pct_RenterCostBurdened ~ Age_Group, data = cviogDataAgeRenters)
+```
+
+# Race Homeowners Anova
+
+```{r}
+
+
+cviogDataRaceOwners <- cviogData %>%
+  select(GEOID, Pct_CostBurdened_White_Owners, 
+         Pct_CostBurdened_Black_Owners, 
+         Pct_CostBurdened_Other_Owners 
+          
+         ) %>%
+  pivot_longer(cols = c("Pct_CostBurdened_White_Owners", 
+                        "Pct_CostBurdened_Black_Owners", 
+                        "Pct_CostBurdened_Other_Owners"),
+               names_to = "Race_Group", 
+               values_to = "Pct_CostBurdened") %>%
+  mutate(Race_Group = factor(Race_Group, 
+                             levels = c("Pct_CostBurdened_White_Owners", 
+                                        "Pct_CostBurdened_Black_Owners", 
+                                        "Pct_CostBurdened_Other_Owners"),
+                             labels = c("White", "Black", "Other")))
+
+
+ggplot(cviogDataRaceOwners, aes(x = Race_Group, y = Pct_CostBurdened, fill = Race_Group)) +
+  geom_violin() +
+  labs(title = "Violin Plot of Homeowner Cost Burdened by Race Group",
+       x = "Race Group",
+       y = "Percentage of Cost Burdened Homeowners") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+
+```
+
+```{r}
+ggplot(cviogDataAgeOwners, aes(x = Pct_CostBurdened, fill = Age_Group)) +
+  geom_histogram(bins = 20, color = "black", alpha = 0.7) +
+  facet_wrap(~ Age_Group, scales = "free") +
+  labs(title = "Histogram of Cost Burdened Homeowners by Age Group",
+       x = "Percentage of Cost Burdened Homeowners",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+
+
+oneway.test(Pct_CostBurdened ~ Race_Group, data = cviogDataRaceOwners, var.equal = FALSE)
+
+gamesHowellTest(Pct_CostBurdened ~ Race_Group, data = cviogDataRaceOwners)
+```
+
+# Race Renters Anova
+
+```{r}
+
+cviogDataRaceRenters <- cviogData %>%
+  select(GEOID, Pct_CostBurdened_White_Renters, 
+         Pct_CostBurdened_Black_Renters, 
+         Pct_CostBurdened_Other_Renters 
+         
+         ) %>%
+  pivot_longer(cols = c("Pct_CostBurdened_White_Renters", 
+                        "Pct_CostBurdened_Black_Renters", 
+                        "Pct_CostBurdened_Other_Renters"),
+               names_to = "Race_Group", 
+               values_to = "Pct_CostBurdened") %>%
+  mutate(Race_Group = factor(Race_Group, 
+                             levels = c("Pct_CostBurdened_White_Renters", 
+                                        "Pct_CostBurdened_Black_Renters", 
+                                        "Pct_CostBurdened_Other_Renters"),
+                             labels = c("White", "Black", "Other")))
+
+ggplot(cviogDataRaceRenters, aes(x = Race_Group, y = Pct_CostBurdened, fill = Race_Group)) +
+  geom_violin() +
+  labs(title = "Boxplot of Renters Cost Burdened by Race Group",
+       x = "Race Group",
+       y = "Percentage of Renters Cost Burdened") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate x-axis labels for better readability
+
+```
+
+```{r}
+
+
+
+oneway.test(Pct_CostBurdened ~ Race_Group, data = cviogDataRaceRenters, var.equal = FALSE)
+
+gamesHowellTest(Pct_CostBurdened ~ Race_Group, data = cviogDataRaceRenters)
+```
+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

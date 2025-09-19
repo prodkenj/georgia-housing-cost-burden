@@ -1,0 +1,104 @@
+---
+title: "CVIOG"
+author: "Ken Wong"
+date: "2025-02-19"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load libraries
+library(spdep)
+library(sf)
+library(spatialreg)
+library(tigris)
+
+# Download Georgia counties (FIPS code '13')
+georgia_sf <- counties(state = "GA", year = 2023)
+
+# Load data and merge with spatial boundaries
+data <- read.csv("cviogData_Feb19.csv")
+merged_data <- merge(georgia_sf, data, by = "GEOID")
+
+# -------------------------------
+# 1. Spatial Weights Matrices
+# -------------------------------
+
+# a) Queen contiguity weights
+nb_queen <- poly2nb(merged_data)
+listw_queen <- nb2listw(nb_queen)
+
+# Moran’s I test for queen weights
+moran_test_queen <- moran.test(merged_data$percent_owner_occupied_cost_burdened, listw_queen)
+print(moran_test_queen)
+
+# b) 4-Nearest Neighbors weights
+# Calculate centroids for the counties
+centroids <- st_centroid(merged_data)
+coords <- st_coordinates(centroids)
+
+# Create 4-nearest neighbors list
+nb_knn <- knn2nb(knearneigh(coords, k = 4))
+listw_knn <- nb2listw(nb_knn)
+
+# Moran’s I test for 4-NN weights
+moran_test_knn <- moran.test(merged_data$percent_owner_occupied_cost_burdened, listw_knn)
+print(moran_test_knn)
+
+# -------------------------------
+# 2. Model Comparisons
+# -------------------------------
+
+# a) Ordinary Least Squares (OLS) Model
+ols_model <- lm(percent_owner_occupied_cost_burdened ~ MedHouseIncome + unemployment_rate +
+                  percent_bachelors_higher + isUrban, data = merged_data)
+summary(ols_model)
+
+# Test for spatial autocorrelation in OLS residuals (using queen weights)
+lm_moran <- lm.morantest(ols_model, listw_queen)
+print(lm_moran)
+
+# b) Spatial Lag Model (SAR) using queen weights
+sar_model <- lagsarlm(percent_owner_occupied_cost_burdened ~ MedHouseIncome + unemployment_rate +
+                        percent_bachelors_higher + isUrban, data = merged_data,
+                      listw = listw_queen)
+summary(sar_model)
+
+# c) Spatial Error Model (SEM) using queen weights
+sem_model <- errorsarlm(percent_owner_occupied_cost_burdened ~ MedHouseIncome + unemployment_rate +
+                          percent_bachelors_higher + isUrban, data = merged_data,
+                        listw = listw_queen)
+summary(sem_model)
+
+# Compare AIC values
+cat("OLS AIC:", AIC(ols_model), "\n")
+cat("SAR AIC:", AIC(sar_model), "\n")
+cat("SEM AIC:", AIC(sem_model), "\n")
+
+# -------------------------------
+# 3. Alternative Specification: Log-transform Income
+# -------------------------------
+
+# Create a new variable: log of Median Household Income
+merged_data$log_MedHouseIncome <- log(merged_data$MedHouseIncome)
+
+# Fit a SAR model with the log-transformed income
+sar_model_log <- lagsarlm(percent_owner_occupied_cost_burdened ~ log_MedHouseIncome + unemployment_rate +
+                            percent_bachelors_higher + isUrban, data = merged_data,
+                          listw = listw_queen)
+summary(sar_model_log)
+
+# -------------------------------
+# 4. Residual Diagnostics for the Final Model
+# -------------------------------
+
+# Plot residuals and histogram from the log-transformed SAR model
+par(mfrow = c(1, 2))
+plot(residuals(sar_model_log), main = "Residuals of SAR (log income)", ylab = "Residuals")
+hist(residuals(sar_model_log), main = "Histogram of Residuals", xlab = "Residuals")
+
+```
+
